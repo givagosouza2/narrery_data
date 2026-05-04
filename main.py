@@ -134,8 +134,8 @@ def detectar_saida_baseline(
     media = np.mean(baseline)
     dp = np.std(baseline, ddof=1)
 
-    limite_sup = media + n_dp * dp
-    limite_inf = media - n_dp * dp
+    limite_sup = 0.75
+    limite_inf = -0.75
 
     if procurar_apos_baseline:
         mask_busca = tempo > t_fim_base

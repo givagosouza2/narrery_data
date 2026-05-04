@@ -337,7 +337,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
             onset = df_2["tempo"][p1+index]
             break
 
-    st.text(onset)
+    
     with col1:
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -367,8 +367,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
             )
         
         fig.add_vline(x=linha_zero, line_dash="dash", line_color="red")
-        
-        
+
         fig.update_layout(
             height=650,
             xaxis_title="Tempo (s)",

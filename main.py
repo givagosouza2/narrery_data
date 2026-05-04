@@ -297,6 +297,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
             height=650,
             xaxis_title="Tempo (s)",
             yaxis_title="Aceleração processada",
+            xaxis=dict(range=[linha_zero - 0.5, linha_zero+1.5]),
             margin=dict(l=40, r=20, t=40, b=40)
         )
     
@@ -317,6 +318,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
             height=650,
             xaxis_title="Tempo (s)",
             yaxis_title="Aceleração processada",
+            xaxis=dict(range=[linha_zero - 0.5, linha_zero+1.5]),
             margin=dict(l=40, r=20, t=40, b=40)
         )
     

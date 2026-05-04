@@ -1,305 +1,187 @@
 import io
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import streamlit as st
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
 from scipy.signal import detrend, butter, filtfilt
-from scipy.io import savemat
 
-st.set_page_config(page_title="APA - Análise de Aceleração", layout="wide")
 
-# =========================================================
-# Funções auxiliares
-# =========================================================
+st.set_page_config(page_title="Análise de acelerometria", layout="wide")
 
-def read_txt_uploaded(uploaded_file):
-    """Lê arquivo TXT/CSV com pelo menos 4 colunas numéricas: tempo, accX, accY, accZ."""
+st.title("Análise de dois sensores: detrend + filtro passa-baixa")
+st.write(
+    "Abra dois arquivos TXT/CSV, aplique detrend, filtro passa-baixa de 10 Hz "
+    "e escolha quais eixos deseja plotar para cada sensor."
+)
+
+
+def read_sensor_file(uploaded_file):
+    """Lê arquivos separados por ;, vírgula, tab ou espaço."""
     if uploaded_file is None:
         return None
 
-    raw = uploaded_file.read()
-    uploaded_file.seek(0)
+    raw = uploaded_file.getvalue().decode("utf-8", errors="ignore")
+    df = pd.read_csv(io.StringIO(raw), sep=r"[;,	 ]+", engine="python")
 
-    # Tenta ler com separadores comuns: vírgula, ponto e vírgula, tabulação ou espaços.
-    try:
-        df = pd.read_csv(
-            io.BytesIO(raw),
-            sep=r"[,;\t\s]+",
-            engine="python",
-            header=None,
-            comment="#",
-        )
-    except Exception as e:
-        raise ValueError(f"Não foi possível ler o arquivo: {e}")
+    # Normaliza nomes de colunas
+    df.columns = [str(c).strip() for c in df.columns]
 
-    # Remove colunas completamente vazias e tenta converter para numérico.
-    df = df.dropna(axis=1, how="all")
-    df = df.apply(pd.to_numeric, errors="coerce")
+    # Mantém apenas colunas numéricas
+    for col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.dropna(how="all")
 
-    # Se a primeira linha era cabeçalho, ela vira NaN e será removida.
-    df = df.dropna()
-
     if df.shape[1] < 4:
-        raise ValueError("O arquivo precisa ter pelo menos 4 colunas numéricas: tempo, accX, accY e accZ.")
+        raise ValueError("O arquivo precisa ter pelo menos 4 colunas: tempo, Acc X, Acc Y e Acc Z.")
 
-    return df.iloc[:, :4].copy()
+    df = df.iloc[:, :4].copy()
+    df.columns = ["tempo_original", "acc_x", "acc_y", "acc_z"]
 
-
-def butter_lowpass_filter(x, cutoff_hz, fs_hz=100.0, order=2):
-    nyq = fs_hz / 2.0
-    wn = cutoff_hz / nyq
-    b, a = butter(order, wn, btype="low")
-    return filtfilt(b, a, x)
-
-
-def moving_average(x, window=50):
-    return pd.Series(x).rolling(window=window, center=False, min_periods=1).mean().to_numpy()
-
-
-def process_sensor(df, sensor_type, fs_hz=100.0):
-    """
-    Reproduz a lógica do MATLAB:
-    - tempo em ms convertido para s
-    - aceleração dividida por 9.81
-    - detrend
-    - cintura accY invertida
-    - filtros diferentes por eixo
-    """
-    tempo = df.iloc[:, 0].to_numpy(dtype=float) / 1000.0
-    accX = detrend(df.iloc[:, 1].to_numpy(dtype=float) / 9.81)
-    accY = detrend(df.iloc[:, 2].to_numpy(dtype=float) / 9.81)
-    accZ = detrend(df.iloc[:, 3].to_numpy(dtype=float) / 9.81)
-
-    if sensor_type == "cintura":
-        accY = -1.0 * accY
-
-    accX_fit = moving_average(accX, 50)
-    accY_fit = moving_average(accY, 50)
-    accR = np.sqrt(accX**2 + accY**2 + accZ**2)
-
-    if sensor_type == "tornozelo":
-        # MATLAB: tornozelo_accY filtrado em 20 Hz; tornozelo_accX em 3 Hz
-        accY = butter_lowpass_filter(accY, cutoff_hz=20, fs_hz=fs_hz, order=2)
-        accX = butter_lowpass_filter(accX, cutoff_hz=3, fs_hz=fs_hz, order=2)
-        idx_zero = int(np.argmax(accY))
-        tempo_sync = tempo - tempo[idx_zero]
+    # Tempo: se estiver em ms, converte para segundos.
+    t = df["tempo_original"].to_numpy(dtype=float)
+    dt_median = np.nanmedian(np.diff(t))
+    if dt_median > 1:  # típico: 10 ms
+        df["tempo_s"] = df["tempo_original"] / 1000.0
     else:
-        # MATLAB: cintura_accX filtrado em 20 Hz; cintura_accY em 3 Hz
-        accX = butter_lowpass_filter(accX, cutoff_hz=20, fs_hz=fs_hz, order=2)
-        accY = butter_lowpass_filter(accY, cutoff_hz=3, fs_hz=fs_hz, order=2)
-        idx_zero = int(np.argmax(accX))
-        tempo_sync = tempo - tempo[idx_zero]
+        df["tempo_s"] = df["tempo_original"]
 
-    return {
-        "tempo_original": tempo,
-        "tempo": tempo_sync,
-        "accX": accX,
-        "accY": accY,
-        "accZ": accZ,
-        "accR": accR,
-        "accX_fit": accX_fit,
-        "accY_fit": accY_fit,
-        "idx_zero": idx_zero,
+    return df
+
+
+def estimate_fs(time_s):
+    diffs = np.diff(time_s)
+    diffs = diffs[np.isfinite(diffs) & (diffs > 0)]
+    if len(diffs) == 0:
+        return 100.0
+    return 1.0 / np.median(diffs)
+
+
+def preprocess(df, cutoff_hz=10.0, order=2, apply_abs=False):
+    out = df.copy()
+    fs = estimate_fs(out["tempo_s"].to_numpy(dtype=float))
+    nyq = fs / 2.0
+
+    if cutoff_hz >= nyq:
+        raise ValueError(
+            f"A frequência de corte ({cutoff_hz} Hz) precisa ser menor que Nyquist ({nyq:.2f} Hz)."
+        )
+
+    b, a = butter(order, cutoff_hz / nyq, btype="low")
+
+    for axis in ["acc_x", "acc_y", "acc_z"]:
+        y = out[axis].to_numpy(dtype=float)
+        y = pd.Series(y).interpolate(limit_direction="both").to_numpy()
+        y_det = detrend(y, type="linear")
+        y_filt = filtfilt(b, a, y_det)
+        if apply_abs:
+            y_filt = np.abs(y_filt)
+        out[f"{axis}_detrend"] = y_det
+        out[f"{axis}_filt"] = y_filt
+
+    out["acc_r_filt"] = np.sqrt(
+        out["acc_x_filt"] ** 2 + out["acc_y_filt"] ** 2 + out["acc_z_filt"] ** 2
+    )
+    return out, fs
+
+
+def plot_sensor(df, selected_axes, title, y_source):
+    fig, ax = plt.subplots(figsize=(12, 4))
+    map_cols = {
+        "X": f"acc_x_{y_source}",
+        "Y": f"acc_y_{y_source}",
+        "Z": f"acc_z_{y_source}",
+        "R = sqrt(X²+Y²+Z²)": "acc_r_filt" if y_source == "filt" else None,
     }
 
+    for axis in selected_axes:
+        col = map_cols.get(axis)
+        if col is not None and col in df.columns:
+            ax.plot(df["tempo_s"], df[col], label=axis)
 
-def safe_slice(center_idx, before, after, n):
-    start = max(0, center_idx - before)
-    end = min(n, center_idx + after + 1)
-    return slice(start, end)
+    ax.set_title(title)
+    ax.set_xlabel("Tempo (s)")
+    ax.set_ylabel("Aceleração")
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="best")
+    st.pyplot(fig)
 
-
-def nearest_index(time_array, selected_time, start_idx=0):
-    valid = np.arange(start_idx, len(time_array))
-    if len(valid) == 0:
-        return start_idx
-    return int(valid[np.argmin(np.abs(time_array[valid] - selected_time))])
-
-
-def line_plot(x, y, title, y_label="Aceleração (g)", vline=None, y_range=None, y2=None, y2_name="Média móvel"):
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name="Sinal", line=dict(color="black")))
-    if y2 is not None:
-        fig.add_trace(go.Scatter(x=x, y=y2, mode="lines", name=y2_name, line=dict(color="red")))
-    if vline is not None:
-        fig.add_vline(x=vline, line_dash="dash", line_color="red")
-    fig.update_layout(
-        title=title,
-        xaxis_title="Tempo (s)",
-        yaxis_title=y_label,
-        height=330,
-        margin=dict(l=30, r=20, t=50, b=30),
-        font=dict(family="Times New Roman", size=16),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    if y_range is not None:
-        fig.update_yaxes(range=y_range)
-    return fig
-
-
-# =========================================================
-# Interface
-# =========================================================
-
-st.title("APA - Conversão MATLAB para Python/Streamlit")
-st.caption("Importe os sinais do tornozelo e da cintura, sincronize, visualize e salve janelas de análise.")
 
 with st.sidebar:
-    st.header("1. Importar dados")
-    fs_hz = st.number_input("Frequência de amostragem assumida (Hz)", min_value=1.0, max_value=1000.0, value=100.0, step=1.0)
-    tornozelo_file = st.file_uploader("Arquivo do tornozelo (.txt/.csv)", type=["txt", "csv"], key="tornozelo")
-    cintura_file = st.file_uploader("Arquivo da cintura (.txt/.csv)", type=["txt", "csv"], key="cintura")
+    st.header("Arquivos")
+    file1 = st.file_uploader("Arquivo 1", type=["txt", "csv"], key="file1")
+    nome1 = st.text_input("Nome do arquivo 1", value="Cintura")
 
-    processar = st.button("Processar arquivos", type="primary")
+    file2 = st.file_uploader("Arquivo 2", type=["txt", "csv"], key="file2")
+    nome2 = st.text_input("Nome do arquivo 2", value="Tornozelo")
 
-if processar:
-    try:
-        tornozelo_df = read_txt_uploaded(tornozelo_file)
-        cintura_df = read_txt_uploaded(cintura_file)
-        if tornozelo_df is None or cintura_df is None:
-            st.warning("Importe os dois arquivos antes de processar.")
-        else:
-            st.session_state["tornozelo"] = process_sensor(tornozelo_df, "tornozelo", fs_hz)
-            st.session_state["cintura"] = process_sensor(cintura_df, "cintura", fs_hz)
-            st.session_state["janelas"] = []
-            st.success("Arquivos processados e sincronizados automaticamente pelos picos iniciais.")
-    except Exception as e:
-        st.error(str(e))
+    st.header("Pré-processamento")
+    cutoff = st.number_input("Filtro passa-baixa (Hz)", min_value=0.1, max_value=49.0, value=10.0, step=0.5)
+    order = st.selectbox("Ordem do filtro Butterworth", [2, 4, 6], index=0)
+    apply_abs = st.checkbox("Plotar valores absolutos após filtro", value=False)
+    y_source_label = st.radio("Sinal para plotagem", ["Filtrado", "Apenas detrend"], index=0)
+    y_source = "filt" if y_source_label == "Filtrado" else "detrend"
 
-if "tornozelo" not in st.session_state or "cintura" not in st.session_state:
-    st.info("Carregue os dois arquivos na barra lateral para iniciar.")
+    st.header("Eixos")
+    axes1 = st.multiselect(f"Eixos para {nome1}", ["X", "Y", "Z", "R = sqrt(X²+Y²+Z²)"], default=["X"])
+    axes2 = st.multiselect(f"Eixos para {nome2}", ["X", "Y", "Z", "R = sqrt(X²+Y²+Z²)"], default=["Y"])
+
+if file1 is None or file2 is None:
+    st.info("Envie os dois arquivos para iniciar a análise.")
     st.stop()
 
-t = st.session_state["tornozelo"]
-c = st.session_state["cintura"]
+try:
+    df1 = read_sensor_file(file1)
+    df2 = read_sensor_file(file2)
 
-st.header("2. Sincronização")
-col1, col2 = st.columns(2)
+    proc1, fs1 = preprocess(df1, cutoff_hz=cutoff, order=order, apply_abs=apply_abs)
+    proc2, fs2 = preprocess(df2, cutoff_hz=cutoff, order=order, apply_abs=apply_abs)
 
-# Índices automáticos
-idx_to_auto = t["idx_zero"]
-idx_ci_auto = c["idx_zero"]
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(f"{nome1}: amostras", len(proc1))
+    c2.metric(f"{nome1}: Fs estimada", f"{fs1:.1f} Hz")
+    c3.metric(f"{nome2}: amostras", len(proc2))
+    c4.metric(f"{nome2}: Fs estimada", f"{fs2:.1f} Hz")
 
-with col1:
-    sl = safe_slice(idx_to_auto, 100, 100, len(t["tempo"]))
-    st.plotly_chart(
-        line_plot(t["tempo"][sl], t["accY"][sl], "Tornozelo Y - sincronização", vline=0, y_range=[-3, 3]),
-        use_container_width=True,
-    )
-with col2:
-    sl = safe_slice(idx_ci_auto, 100, 100, len(c["tempo"]))
-    st.plotly_chart(
-        line_plot(c["tempo"][sl], c["accX"][sl], "Cintura X - sincronização", vline=0, y_range=[-3, 3]),
-        use_container_width=True,
-    )
+    tab1, tab2, tab3 = st.tabs(["Gráficos", "Dados processados", "Exportar"])
 
-with st.expander("Sincronização manual"):
-    st.write("No MATLAB a seleção era feita por clique com `ginput`. Aqui, selecione o novo tempo zero usando campos numéricos.")
-    colm1, colm2, colm3 = st.columns([1, 1, 1])
-    with colm1:
-        novo_zero_tornozelo = st.number_input("Novo zero tornozelo (s)", value=0.0, step=0.01, format="%.4f")
-    with colm2:
-        novo_zero_cintura = st.number_input("Novo zero cintura (s)", value=0.0, step=0.01, format="%.4f")
-    with colm3:
-        if st.button("Aplicar sincronização manual"):
-            idx_to = nearest_index(t["tempo"], novo_zero_tornozelo, max(0, idx_to_auto - 100))
-            idx_ci = nearest_index(c["tempo"], novo_zero_cintura, max(0, idx_ci_auto - 100))
-            t["tempo"] = t["tempo"] - t["tempo"][idx_to]
-            c["tempo"] = c["tempo"] - c["tempo"][idx_ci]
-            t["idx_zero"] = idx_to
-            c["idx_zero"] = idx_ci
-            st.success("Sincronização manual aplicada.")
-            st.rerun()
+    with tab1:
+        col1, col2 = st.columns(2)
+        with col1:
+            plot_sensor(proc1, axes1, nome1, y_source)
+        with col2:
+            plot_sensor(proc2, axes2, nome2, y_source)
 
-st.header("3. Ver registros")
-start_to = min(len(t["tempo"]) - 1, t["idx_zero"] + 100)
-start_ci = min(len(c["tempo"]) - 1, c["idx_zero"] + 100)
+        st.subheader("Sobreposição opcional")
+        overlay = st.checkbox("Mostrar os dois sensores no mesmo gráfico")
+        if overlay:
+            fig, ax = plt.subplots(figsize=(14, 5))
+            for axis in axes1:
+                col = {"X": f"acc_x_{y_source}", "Y": f"acc_y_{y_source}", "Z": f"acc_z_{y_source}", "R = sqrt(X²+Y²+Z²)": "acc_r_filt"}.get(axis)
+                if col and col in proc1.columns:
+                    ax.plot(proc1["tempo_s"], proc1[col], label=f"{nome1} {axis}")
+            for axis in axes2:
+                col = {"X": f"acc_x_{y_source}", "Y": f"acc_y_{y_source}", "Z": f"acc_z_{y_source}", "R = sqrt(X²+Y²+Z²)": "acc_r_filt"}.get(axis)
+                if col and col in proc2.columns:
+                    ax.plot(proc2["tempo_s"], proc2[col], label=f"{nome2} {axis}")
+            ax.set_xlabel("Tempo (s)")
+            ax.set_ylabel("Aceleração")
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc="best")
+            st.pyplot(fig)
 
-col3, col4 = st.columns(2)
-with col3:
-    st.plotly_chart(
-        line_plot(
-            t["tempo"][start_to:],
-            np.abs(t["accX"])[start_to:],
-            "Tornozelo |accX|",
-            y_range=[-0.8, 0.8],
-            y2=t["accX_fit"][start_to:],
-        ),
-        use_container_width=True,
-    )
-with col4:
-    st.plotly_chart(
-        line_plot(
-            c["tempo"][start_ci:],
-            c["accY"][start_ci:],
-            "Cintura accY",
-            y_range=[-0.25, 0.25],
-            y2=c["accY_fit"][start_ci:],
-        ),
-        use_container_width=True,
-    )
+    with tab2:
+        st.write(f"### {nome1}")
+        st.dataframe(proc1.head(1000), use_container_width=True)
+        st.write(f"### {nome2}")
+        st.dataframe(proc2.head(1000), use_container_width=True)
 
-st.header("4. Selecionar e salvar janela")
-min_time = float(max(t["tempo"][start_to], c["tempo"][start_ci]))
-max_time = float(min(t["tempo"][-1], c["tempo"][-1]))
-selected_time = st.slider("Tempo central da janela (s)", min_value=min_time, max_value=max_time, value=min_time, step=0.01)
+    with tab3:
+        csv1 = proc1.to_csv(index=False).encode("utf-8")
+        csv2 = proc2.to_csv(index=False).encode("utf-8")
+        st.download_button(f"Baixar {nome1} processado CSV", data=csv1, file_name=f"{nome1}_processado.csv", mime="text/csv")
+        st.download_button(f"Baixar {nome2} processado CSV", data=csv2, file_name=f"{nome2}_processado.csv", mime="text/csv")
 
-j_to = nearest_index(t["tempo"], selected_time, start_to)
-j_ci = nearest_index(c["tempo"], selected_time, start_ci)
-win_to = safe_slice(j_to, 200, 100, len(t["tempo"]))
-win_ci = safe_slice(j_ci, 200, 100, len(c["tempo"]))
-
-col5, col6 = st.columns(2)
-with col5:
-    st.plotly_chart(
-        line_plot(
-            t["tempo"][win_to],
-            np.abs(t["accX"])[win_to],
-            "Janela - Tornozelo |accX|",
-            vline=t["tempo"][j_to],
-            y_range=[-0.8, 0.8],
-        ),
-        use_container_width=True,
-    )
-with col6:
-    st.plotly_chart(
-        line_plot(
-            c["tempo"][win_ci],
-            c["accY"][win_ci],
-            "Janela - Cintura accY",
-            vline=c["tempo"][j_ci],
-            y_range=[-0.25, 0.25],
-        ),
-        use_container_width=True,
-    )
-
-if st.button("Salvar janela na sessão"):
-    janela = pd.DataFrame({
-        "tornozelo_tempo": t["tempo"][win_to],
-        "tornozelo_abs_accX": np.abs(t["accX"])[win_to],
-        "cintura_tempo": c["tempo"][win_ci],
-        "cintura_accY": c["accY"][win_ci],
-    })
-    st.session_state["janelas"].append(janela)
-    st.success(f"Janela salva. Total de janelas na sessão: {len(st.session_state['janelas'])}")
-
-if st.session_state.get("janelas"):
-    st.subheader("Janelas salvas")
-    janela_idx = st.selectbox("Selecionar janela", range(1, len(st.session_state["janelas"]) + 1))
-    janela_df = st.session_state["janelas"][janela_idx - 1]
-    st.dataframe(janela_df, use_container_width=True)
-
-    csv_bytes = janela_df.to_csv(index=False).encode("utf-8")
-    st.download_button("Baixar janela selecionada em CSV", csv_bytes, file_name=f"janela_{janela_idx}.csv", mime="text/csv")
-
-    # Exporta todas as janelas para um arquivo .mat em memória.
-    mat_dict = {f"janela_{i+1}": df.to_numpy() for i, df in enumerate(st.session_state["janelas"])}
-    mat_buffer = io.BytesIO()
-    savemat(mat_buffer, mat_dict)
-    st.download_button(
-        "Baixar todas as janelas em MAT",
-        mat_buffer.getvalue(),
-        file_name="resultados.mat",
-        mime="application/octet-stream",
-    )
+except Exception as e:
+    st.error(f"Erro na análise: {e}")

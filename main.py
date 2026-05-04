@@ -300,6 +300,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
         valeAPA = np.min(df_2["X"][p1:p2])
         for index,valor in enumerate(df_2["X"]):
             if valor == valeAPA:
+                valeTime = df_2["tempo"][index]
                 break
         baseline = np.mean(df_2["X"][p1:p1+200])
         dp_baseline = np.std(df_2["X"][p1:p1+200])
@@ -320,6 +321,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
                     name=f"Arquivo 2 — {"X"}"
                 )
             )
+        fig.add_vline(x=valeTime, line_dash="dash", line_color="green")
         fig.add_vline(x=linha_zero, line_dash="dash", line_color="red")
         fig.add_vline(x=onset, line_dash="dash", line_color="blue")
         

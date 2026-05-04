@@ -246,8 +246,8 @@ if arquivo_1 is not None and arquivo_2 is not None:
         "R": r2_filt
     })
 
-    peakAnkle = np.max(df_1["Y"][0:1500])
-    peakLumbar = np.max(df_2["X"][0:1500])
+    peakAnkle = np.max(df_1["Y"][0:1000])
+    peakLumbar = np.max(df_2["X"][0:1000])
     for index,valor in enumerate(df_1["Y"]):
         if valor == peakAnkle:
             df_1["tempo"] = df_1["tempo"] - df_1["tempo"][index] 

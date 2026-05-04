@@ -308,6 +308,8 @@ if arquivo_1 is not None and arquivo_2 is not None:
             if valor < baseline - 2*dp_baseline:
                 onset = df_2["tempo"][index]
                 break
+
+        st.text(onset)
         
         
         fig = go.Figure()

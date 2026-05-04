@@ -3,254 +3,293 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-from scipy.signal import detrend, butter, filtfilt
+from scipy import signal
+
 
 st.set_page_config(page_title="Sincronização de sinais IMU", layout="wide")
 
-st.title("Sincronização de sinais: tornozelo e coluna/cintura")
-st.markdown(
+
+# -----------------------------
+# Funções auxiliares
+# -----------------------------
+def ler_arquivo(uploaded_file):
     """
-Este app importa dois arquivos de aceleração, aplica **detrend**, filtro passa-baixa de **10 Hz** 
-e sincroniza as séries temporais usando:
-
-- **Tornozelo:** pico máximo do eixo **Y**
-- **Coluna/Cintura:** pico máximo do eixo **X**
-
-Após a sincronização, esses dois eventos passam a ser o **tempo zero** de cada registro.
-"""
-)
-
-
-def read_sensor_file(uploaded_file):
-    """Read semicolon/comma/space separated TXT/CSV with time, X, Y, Z columns."""
+    Lê arquivo TXT/CSV com separador ;, vírgula, tabulação ou espaço.
+    Espera colunas semelhantes a:
+    DURACAO;ACC EIXO X;ACC EIXO Y;ACC EIXO Z
+    """
     if uploaded_file is None:
         return None
 
     raw = uploaded_file.read()
-    uploaded_file.seek(0)
-
-    # Try common separators. The uploaded examples use semicolon.
     text = raw.decode("utf-8", errors="ignore")
-    try:
-        df = pd.read_csv(io.StringIO(text), sep=r"[;,	]+", engine="python")
-    except Exception:
-        df = pd.read_csv(io.StringIO(text), sep=r"\s+", engine="python")
 
-    # If parsing failed into one column, try whitespace.
-    if df.shape[1] < 4:
-        df = pd.read_csv(io.StringIO(text), sep=r"\s+", engine="python")
+    df = pd.read_csv(
+        io.StringIO(text),
+        sep=r"[;\t,]+",
+        engine="python"
+    )
 
-    if df.shape[1] < 4:
-        raise ValueError("O arquivo precisa ter pelo menos 4 colunas: tempo, accX, accY e accZ.")
+    df.columns = [c.strip().upper() for c in df.columns]
 
-    df = df.iloc[:, :4].copy()
-    df.columns = ["tempo_original", "X_original", "Y_original", "Z_original"]
+    # Tenta identificar as colunas
+    tempo_col = None
+    x_col = None
+    y_col = None
+    z_col = None
 
-    for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-    df = df.dropna().reset_index(drop=True)
+    for c in df.columns:
+        if "DUR" in c or "TEMPO" in c or c == "TIME":
+            tempo_col = c
+        elif "X" in c:
+            x_col = c
+        elif "Y" in c:
+            y_col = c
+        elif "Z" in c:
+            z_col = c
 
-    return df
+    if tempo_col is None or x_col is None or y_col is None or z_col is None:
+        # fallback: usa as quatro primeiras colunas numéricas
+        df_num = df.apply(pd.to_numeric, errors="coerce")
+        numeric_cols = df_num.columns[df_num.notna().sum() > 0].tolist()
+        if len(numeric_cols) < 4:
+            raise ValueError("O arquivo precisa ter pelo menos 4 colunas numéricas: tempo, X, Y e Z.")
+        tempo_col, x_col, y_col, z_col = numeric_cols[:4]
+
+    out = pd.DataFrame({
+        "tempo_original": pd.to_numeric(df[tempo_col], errors="coerce"),
+        "X_raw": pd.to_numeric(df[x_col], errors="coerce"),
+        "Y_raw": pd.to_numeric(df[y_col], errors="coerce"),
+        "Z_raw": pd.to_numeric(df[z_col], errors="coerce"),
+    }).dropna()
+
+    # Converte tempo para segundos se parecer estar em milissegundos
+    tempo = out["tempo_original"].to_numpy(dtype=float)
+    if np.nanmedian(np.diff(tempo)) > 1:
+        tempo = tempo / 1000.0
+
+    out["tempo_s"] = tempo
+    return out.reset_index(drop=True)
 
 
-def estimate_fs(time_s):
-    dt = np.diff(time_s)
+def estimar_fs(tempo):
+    dt = np.diff(tempo)
     dt = dt[np.isfinite(dt) & (dt > 0)]
     if len(dt) == 0:
         return 100.0
     return 1.0 / np.median(dt)
 
 
-def lowpass_filter(y, fs, cutoff=10.0, order=2):
+def preprocessar(df, cutoff_hz=10.0, ordem=2):
+    """
+    Aplica detrend e filtro passa-baixa em X, Y e Z.
+    Também calcula a resultante R filtrada.
+    """
+    tempo = df["tempo_s"].to_numpy(dtype=float)
+    fs = estimar_fs(tempo)
+
     nyq = fs / 2.0
-    if cutoff >= nyq:
-        cutoff = 0.45 * fs
-    wn = cutoff / nyq
-    b, a = butter(order, wn, btype="low")
-    return filtfilt(b, a, y)
+    cutoff = min(cutoff_hz, nyq * 0.95)
+
+    b, a = signal.butter(ordem, cutoff / nyq, btype="low")
+
+    proc = pd.DataFrame()
+    proc["tempo_s"] = tempo
+
+    for eixo in ["X", "Y", "Z"]:
+        raw = df[f"{eixo}_raw"].to_numpy(dtype=float)
+        detr = signal.detrend(raw)
+        filt = signal.filtfilt(b, a, detr)
+        proc[f"{eixo}"] = filt
+
+    proc["R"] = np.sqrt(proc["X"]**2 + proc["Y"]**2 + proc["Z"]**2)
+    return proc, fs
 
 
-def preprocess(df, cutoff=10.0, order=2, time_unit="ms"):
-    out = df.copy()
+def localizar_pico_ate_10s(df_proc, eixo, janela_s=10.0):
+    """
+    Procura o pico máximo do eixo escolhido apenas nos primeiros 10 segundos
+    contados a partir do início de cada arquivo.
+    """
+    tempo = df_proc["tempo_s"].to_numpy(dtype=float)
+    sinal = df_proc[eixo].to_numpy(dtype=float)
 
-    if time_unit == "ms":
-        out["tempo_s"] = out["tempo_original"] / 1000.0
-    else:
-        out["tempo_s"] = out["tempo_original"]
+    t0 = tempo[0]
+    mascara = (tempo >= t0) & (tempo <= t0 + janela_s)
 
-    fs = estimate_fs(out["tempo_s"].to_numpy())
+    if not np.any(mascara):
+        raise ValueError("Não há dados dentro dos primeiros 10 segundos.")
 
-    for axis in ["X", "Y", "Z"]:
-        raw = out[f"{axis}_original"].to_numpy(dtype=float)
-        det = detrend(raw, type="linear")
-        filt = lowpass_filter(det, fs=fs, cutoff=cutoff, order=order)
-        out[f"{axis}_detrend"] = det
-        out[f"{axis}_filtrado"] = filt
+    indices = np.where(mascara)[0]
+    idx_local = np.argmax(sinal[mascara])
+    idx_global = indices[idx_local]
 
-    out["R_filtrado"] = np.sqrt(
-        out["X_filtrado"] ** 2 + out["Y_filtrado"] ** 2 + out["Z_filtrado"] ** 2
-    )
-    out.attrs["fs"] = fs
+    tempo_pico = tempo[idx_global]
+    valor_pico = sinal[idx_global]
+
+    return idx_global, tempo_pico, valor_pico
+
+
+def aplicar_sincronizacao(df_proc, tempo_pico):
+    out = df_proc.copy()
+    out["tempo_sync"] = out["tempo_s"] - tempo_pico
     return out
 
 
-def sync_by_peak(df, axis_col):
-    """Return dataframe with synchronized time based on max amplitude of selected filtered axis."""
-    out = df.copy()
-    idx_peak = int(np.nanargmax(out[axis_col].to_numpy()))
-    t0 = float(out.loc[idx_peak, "tempo_s"])
-    amp0 = float(out.loc[idx_peak, axis_col])
-    out["tempo_sinc"] = out["tempo_s"] - t0
-    return out, idx_peak, t0, amp0
-
-
-def plot_signals(df, selected_axes, title, time_col="tempo_sinc", peak_info=None):
+def plotar_sinais(df_tornozelo, df_coluna, eixos_tornozelo, eixos_coluna, usar_tempo_sync=True):
     fig = go.Figure()
-    for axis in selected_axes:
-        ycol = f"{axis}_filtrado" if axis != "R" else "R_filtrado"
-        fig.add_trace(
-            go.Scatter(
-                x=df[time_col],
-                y=df[ycol],
-                mode="lines",
-                name=axis,
-            )
-        )
 
-    fig.add_vline(x=0, line_dash="dash", annotation_text="t = 0")
+    tempo_col = "tempo_sync" if usar_tempo_sync else "tempo_s"
 
-    if peak_info is not None:
-        idx_peak, axis_col = peak_info
-        fig.add_trace(
-            go.Scatter(
-                x=[df.loc[idx_peak, time_col]],
-                y=[df.loc[idx_peak, axis_col]],
-                mode="markers",
-                marker=dict(size=10),
-                name="Pico de sincronização",
-            )
-        )
+    for eixo in eixos_tornozelo:
+        fig.add_trace(go.Scatter(
+            x=df_tornozelo[tempo_col],
+            y=df_tornozelo[eixo],
+            mode="lines",
+            name=f"Tornozelo {eixo}"
+        ))
+
+    for eixo in eixos_coluna:
+        fig.add_trace(go.Scatter(
+            x=df_coluna[tempo_col],
+            y=df_coluna[eixo],
+            mode="lines",
+            name=f"Coluna/Cintura {eixo}"
+        ))
+
+    fig.add_vline(x=0, line_dash="dash")
 
     fig.update_layout(
-        title=title,
-        xaxis_title="Tempo sincronizado (s)",
-        yaxis_title="Aceleração filtrada",
-        height=430,
-        legend_title="Eixos",
+        height=650,
+        xaxis_title="Tempo sincronizado (s)" if usar_tempo_sync else "Tempo original (s)",
+        yaxis_title="Aceleração após detrend + filtro",
+        legend_title="Sinais",
+        margin=dict(l=40, r=20, t=40, b=40)
     )
+
     return fig
 
 
+# -----------------------------
+# Interface
+# -----------------------------
+st.title("Sincronização de sinais IMU")
+st.markdown(
+    """
+    Este app abre dois arquivos, aplica **detrend**, filtro passa-baixa de **10 Hz** 
+    e sincroniza os sinais usando o pico nos **primeiros 10 segundos**:
+
+    - **Tornozelo:** pico máximo no eixo **Y**
+    - **Coluna/Cintura:** pico máximo no eixo **X**
+    """
+)
+
 with st.sidebar:
     st.header("Arquivos")
-    tornozelo_file = st.file_uploader("Arquivo do tornozelo", type=["txt", "csv"], key="tornozelo")
-    coluna_file = st.file_uploader("Arquivo da coluna/cintura", type=["txt", "csv"], key="coluna")
+    arq_tornozelo = st.file_uploader("Arquivo do tornozelo", type=["txt", "csv"], key="tornozelo")
+    arq_coluna = st.file_uploader("Arquivo da coluna/cintura", type=["txt", "csv"], key="coluna")
 
-    st.header("Pré-processamento")
-    time_unit = st.radio("Unidade da coluna de tempo", ["ms", "s"], index=0, horizontal=True)
+    st.header("Processamento")
     cutoff = st.number_input("Filtro passa-baixa (Hz)", min_value=0.1, max_value=50.0, value=10.0, step=0.5)
-    order = st.number_input("Ordem do Butterworth", min_value=1, max_value=8, value=2, step=1)
+    ordem = st.number_input("Ordem do filtro Butterworth", min_value=1, max_value=8, value=2, step=1)
+    janela_pico = st.number_input("Procurar pico até (s)", min_value=1.0, max_value=60.0, value=10.0, step=1.0)
 
     st.header("Eixos para plotar")
-    axes_options = ["X", "Y", "Z", "R"]
-    eixos_tornozelo = st.multiselect("Tornozelo", axes_options, default=["Y"])
-    eixos_coluna = st.multiselect("Coluna/Cintura", axes_options, default=["X"])
+    eixos_tornozelo = st.multiselect(
+        "Tornozelo",
+        ["X", "Y", "Z", "R"],
+        default=["Y"]
+    )
+    eixos_coluna = st.multiselect(
+        "Coluna/Cintura",
+        ["X", "Y", "Z", "R"],
+        default=["X"]
+    )
 
-if tornozelo_file is None or coluna_file is None:
-    st.info("Importe os dois arquivos para iniciar a análise.")
-    st.stop()
+    usar_tempo_sync = st.checkbox("Usar tempo sincronizado", value=True)
 
-try:
-    tornozelo_raw = read_sensor_file(tornozelo_file)
-    coluna_raw = read_sensor_file(coluna_file)
 
-    tornozelo = preprocess(tornozelo_raw, cutoff=cutoff, order=int(order), time_unit=time_unit)
-    coluna = preprocess(coluna_raw, cutoff=cutoff, order=int(order), time_unit=time_unit)
+if arq_tornozelo is not None and arq_coluna is not None:
+    try:
+        df_t_raw = ler_arquivo(arq_tornozelo)
+        df_c_raw = ler_arquivo(arq_coluna)
 
-    # Synchronization rule requested by the user.
-    tornozelo, idx_tornozelo, t0_tornozelo, amp_tornozelo = sync_by_peak(tornozelo, "Y_filtrado")
-    coluna, idx_coluna, t0_coluna, amp_coluna = sync_by_peak(coluna, "X_filtrado")
+        df_t_proc, fs_t = preprocessar(df_t_raw, cutoff_hz=cutoff, ordem=int(ordem))
+        df_c_proc, fs_c = preprocessar(df_c_raw, cutoff_hz=cutoff, ordem=int(ordem))
 
-except Exception as e:
-    st.error(f"Erro ao processar os arquivos: {e}")
-    st.stop()
+        idx_t, tempo_pico_t, valor_pico_t = localizar_pico_ate_10s(
+            df_t_proc, eixo="Y", janela_s=janela_pico
+        )
+        idx_c, tempo_pico_c, valor_pico_c = localizar_pico_ate_10s(
+            df_c_proc, eixo="X", janela_s=janela_pico
+        )
 
-st.subheader("Resumo da sincronização")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Fs tornozelo", f"{tornozelo.attrs['fs']:.2f} Hz")
-col2.metric("Pico tornozelo Y", f"{amp_tornozelo:.4f}", f"t0 = {t0_tornozelo:.3f} s")
-col3.metric("Fs coluna/cintura", f"{coluna.attrs['fs']:.2f} Hz")
-col4.metric("Pico coluna X", f"{amp_coluna:.4f}", f"t0 = {t0_coluna:.3f} s")
+        df_t_sync = aplicar_sincronizacao(df_t_proc, tempo_pico_t)
+        df_c_sync = aplicar_sincronizacao(df_c_proc, tempo_pico_c)
 
-st.markdown(
-    f"""
-**Critério aplicado:**  
-- Tornozelo: `tempo_sinc = tempo_s - {t0_tornozelo:.6f}`  
-- Coluna/Cintura: `tempo_sinc = tempo_s - {t0_coluna:.6f}`
-"""
-)
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Fs tornozelo", f"{fs_t:.2f} Hz")
+        col2.metric("Pico tornozelo Y", f"{tempo_pico_t:.3f} s")
+        col3.metric("Fs coluna/cintura", f"{fs_c:.2f} Hz")
+        col4.metric("Pico coluna X", f"{tempo_pico_c:.3f} s")
 
-left, right = st.columns(2)
-with left:
-    st.plotly_chart(
-        plot_signals(
-            tornozelo,
+        st.info(
+            f"Tempo zero definido pelo pico nos primeiros {janela_pico:.1f} s: "
+            f"tornozelo Y = {tempo_pico_t:.3f} s; "
+            f"coluna/cintura X = {tempo_pico_c:.3f} s."
+        )
+
+        fig = plotar_sinais(
+            df_t_sync,
+            df_c_sync,
             eixos_tornozelo,
-            "Tornozelo sincronizado pelo pico máximo do eixo Y",
-            peak_info=(idx_tornozelo, "Y_filtrado"),
-        ),
-        use_container_width=True,
-    )
-with right:
-    st.plotly_chart(
-        plot_signals(
-            coluna,
             eixos_coluna,
-            "Coluna/Cintura sincronizada pelo pico máximo do eixo X",
-            peak_info=(idx_coluna, "X_filtrado"),
-        ),
-        use_container_width=True,
-    )
+            usar_tempo_sync=usar_tempo_sync
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
-st.subheader("Sobreposição dos sinais selecionados")
-fig_overlay = go.Figure()
-for axis in eixos_tornozelo:
-    ycol = f"{axis}_filtrado" if axis != "R" else "R_filtrado"
-    fig_overlay.add_trace(go.Scatter(x=tornozelo["tempo_sinc"], y=tornozelo[ycol], mode="lines", name=f"Tornozelo {axis}"))
-for axis in eixos_coluna:
-    ycol = f"{axis}_filtrado" if axis != "R" else "R_filtrado"
-    fig_overlay.add_trace(go.Scatter(x=coluna["tempo_sinc"], y=coluna[ycol], mode="lines", name=f"Coluna/Cintura {axis}"))
-fig_overlay.add_vline(x=0, line_dash="dash", annotation_text="tempo zero")
-fig_overlay.update_layout(
-    xaxis_title="Tempo sincronizado (s)",
-    yaxis_title="Aceleração filtrada",
-    height=520,
-    legend_title="Sinais",
-)
-st.plotly_chart(fig_overlay, use_container_width=True)
+        st.subheader("Visualização ao redor do tempo zero")
+        janela_zoom = st.slider("Janela de zoom ao redor do tempo zero (s)", 1.0, 10.0, 3.0, 0.5)
 
-st.subheader("Exportar dados sincronizados")
-export_tornozelo = tornozelo[["tempo_original", "tempo_s", "tempo_sinc", "X_filtrado", "Y_filtrado", "Z_filtrado", "R_filtrado"]].copy()
-export_coluna = coluna[["tempo_original", "tempo_s", "tempo_sinc", "X_filtrado", "Y_filtrado", "Z_filtrado", "R_filtrado"]].copy()
+        df_t_zoom = df_t_sync[
+            (df_t_sync["tempo_sync"] >= -janela_zoom) &
+            (df_t_sync["tempo_sync"] <= janela_zoom)
+        ]
+        df_c_zoom = df_c_sync[
+            (df_c_sync["tempo_sync"] >= -janela_zoom) &
+            (df_c_sync["tempo_sync"] <= janela_zoom)
+        ]
 
-c1, c2 = st.columns(2)
-with c1:
-    st.download_button(
-        "Baixar tornozelo sincronizado CSV",
-        data=export_tornozelo.to_csv(index=False).encode("utf-8"),
-        file_name="tornozelo_sincronizado.csv",
-        mime="text/csv",
-    )
-with c2:
-    st.download_button(
-        "Baixar coluna_cintura sincronizada CSV",
-        data=export_coluna.to_csv(index=False).encode("utf-8"),
-        file_name="coluna_cintura_sincronizada.csv",
-        mime="text/csv",
-    )
+        fig_zoom = plotar_sinais(
+            df_t_zoom,
+            df_c_zoom,
+            eixos_tornozelo,
+            eixos_coluna,
+            usar_tempo_sync=True
+        )
+        fig_zoom.update_layout(height=450)
+        st.plotly_chart(fig_zoom, use_container_width=True)
 
-with st.expander("Ver primeiras linhas dos dados sincronizados"):
-    st.write("Tornozelo")
-    st.dataframe(export_tornozelo.head(20), use_container_width=True)
-    st.write("Coluna/Cintura")
-    st.dataframe(export_coluna.head(20), use_container_width=True)
+        st.subheader("Exportar dados sincronizados")
+
+        df_t_export = df_t_sync.copy()
+        df_t_export.insert(0, "sensor", "tornozelo")
+
+        df_c_export = df_c_sync.copy()
+        df_c_export.insert(0, "sensor", "coluna_cintura")
+
+        df_export = pd.concat([df_t_export, df_c_export], ignore_index=True)
+
+        csv = df_export.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Baixar CSV sincronizado",
+            data=csv,
+            file_name="sinais_sincronizados.csv",
+            mime="text/csv"
+        )
+
+    except Exception as e:
+        st.error(f"Erro ao processar os arquivos: {e}")
+
+else:
+    st.warning("Envie os dois arquivos para iniciar a análise.")

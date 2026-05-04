@@ -323,6 +323,8 @@ if arquivo_1 is not None and arquivo_2 is not None:
             break
     p1 = index-500
     p2 = index + 500
+    trial_tempo = df_2["tempo"][p1:p2]
+    trial_data = df_2["X"][p1:p2]
     
     with col1:
         fig = go.Figure()

@@ -319,16 +319,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
     value=0.0,
     step=0.1
     )
-
-    for index,valor in enumerate(df_1["Y"]):
-        if valor == triggerAnkle:
-            df_1["tempo"] = df_1["tempo"] - df_1["tempo"][index] 
-            break
-    for index,valor in enumerate(df_2["X"]):
-        if valor == triggerLumbar:
-            df_2["tempo"] = df_2["tempo"] - df_2["tempo"][index] 
-            break
-            
+        
     for index,valor in enumerate(df_2["tempo"]):
         if valor == linha_zero:
             break
@@ -378,7 +369,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
                 )
             )
         
-        fig.add_vline(x=triggerLumbar, line_dash="dash", line_color="red")
+        fig.add_vline(x=linha_zero, line_dash="dash", line_color="red")
         
         
         fig.update_layout(

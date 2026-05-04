@@ -304,8 +304,9 @@ if arquivo_1 is not None and arquivo_2 is not None:
                 break
         baseline = np.mean(df_2["X"][p1:p1+200])
         dp_baseline = np.std(df_2["X"][p1:p1+200])
-        trial = df_2["X"][p1:p2]
-        for index, valor in enumerate(trial):
+        trial_data = df_2["X"][p1:p2]
+        trial_tempo = df_2["tempo"][p1:p2]
+        for index, valor in enumerate(trial_data):
             if valor < baseline - 2*dp_baseline:
                 onset = df_2["tempo"][p1+index]
                 break
@@ -335,6 +336,17 @@ if arquivo_1 is not None and arquivo_2 is not None:
     
         st.plotly_chart(fig, use_container_width=True)
 
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+                    x=trial_tempo,
+                    y=trial_data,
+                    mode="lines",
+                    name=f"Arquivo 2 — {"X"}"
+                )
+            )
+    fig.add_vline(x=valeTime, line_dash="dash", line_color="green")
+    fig.add_vline(x=linha_zero, line_dash="dash", line_color="red")
+    fig.add_vline(x=onset, line_dash="dash", line_color="blue")
 
     # ========================================================
     # TABELAS E DOWNLOAD

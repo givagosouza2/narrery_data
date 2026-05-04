@@ -258,18 +258,6 @@ if arquivo_1 is not None and arquivo_2 is not None:
             break
 
     # ========================================================
-    # INFORMAÇÕES GERAIS
-    # ========================================================
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1.metric("Amostras arquivo 1", len(df_1))
-    col2.metric("Duração arquivo 1", f"{df_1['tempo'].iloc[-1]:.2f} s")
-    col3.metric("Amostras arquivo 2", len(df_2))
-    col4.metric("Duração arquivo 2", f"{df_2['tempo'].iloc[-1]:.2f} s")
-
-
-    # ========================================================
     # GRÁFICO
     # ========================================================
 
@@ -330,30 +318,35 @@ if arquivo_1 is not None and arquivo_2 is not None:
     # ========================================================
 
     st.subheader("Dados processados")
-
     aba1, aba2 = st.tabs(["Arquivo 1", "Arquivo 2"])
 
     with aba1:
-        st.dataframe(df_1, use_container_width=True)
+        df_1_visivel = df_1[
+        (df_1["tempo"] >= linha_zero - 0.5) &
+        (df_1["tempo"] <= linha_zero - 0.5)
+        ]
+        st.dataframe(df_1_visivel, use_container_width=True)
 
-        csv_1 = df_1.to_csv(index=False).encode("utf-8")
+        csv_1 = df_1_visivel.to_csv(index=False).encode("utf-8")
         st.download_button(
-            "Baixar arquivo 1 processado",
+            "Baixar intervalo visível do arquivo 1",
             data=csv_1,
-            file_name="arquivo_1_processado.csv",
+            file_name="arquivo_1_intervalo_visivel.csv",
             mime="text/csv"
         )
-
     with aba2:
-        st.dataframe(df_2, use_container_width=True)
+        df_2_visivel = df_1[
+        (df_2["tempo"] >= linha_zero - 0.5) &
+        (df_2["tempo"] <= linha_zero - 0.5)
+        ]
+        st.dataframe(df_2_visivel, use_container_width=True)
 
-        csv_2 = df_2.to_csv(index=False).encode("utf-8")
+        csv_2 = df_2_visivel.to_csv(index=False).encode("utf-8")
         st.download_button(
-            "Baixar arquivo 2 processado",
+            "Baixar intervalo visível do arquivo 2",
             data=csv_2,
-            file_name="arquivo_2_processado.csv",
+            file_name="arquivo_2_intervalo_visivel.csv",
             mime="text/csv"
         )
-
 else:
     st.warning("Carregue os dois arquivos para iniciar o processamento.")

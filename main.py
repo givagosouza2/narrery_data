@@ -365,26 +365,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
     
         st.plotly_chart(fig, use_container_width=True)
     
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-                    x=trial_tempo,
-                    y=trial_data,
-                    mode="lines",
-                    name=f"Arquivo 2 — {"X"}"
-                )
-            )
-    fig.add_vline(x=valeTime, line_dash="dash", line_color="green")
-    fig.add_vline(x=linha_zero, line_dash="dash", line_color="red")
-    fig.add_vline(x=onset, line_dash="dash", line_color="blue")
-    fig.update_layout(
-            height=650,
-            xaxis_title="Tempo (s)",
-            yaxis_title="Aceleração processada",
-            xaxis=dict(range=[linha_zero - 0.5, linha_zero+0.5]),
-            margin=dict(l=40, r=20, t=40, b=40)
-        )
     
-    st.plotly_chart(fig, use_container_width=True)
 
     # ========================================================
     # TABELAS E DOWNLOAD

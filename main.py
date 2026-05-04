@@ -292,6 +292,24 @@ if arquivo_1 is not None and arquivo_2 is not None:
         st.plotly_chart(fig, use_container_width=True)
     
     with col2:
+        for index,valor in enumerate(df_2["tempo"]):
+            if valor == linha_zero:
+                break
+        p1 = index-500
+        p2 = index + 500
+        valeAPA = np.min(df_2["X"][p1:p2])
+        for index,valor in enumerate(df_2["X"]):
+            if valor == valeAP:
+                break
+        baseline = np.mean(df_2["X"][p1:p1+200])
+        dp_baseline = np.std(df_2["X"][p1:p1+200])
+        trial = df_2["X"][p1:p2]
+        for index, valor in enumerate(trial):
+            if valor < baseline - 2*dp_baseline:
+                onset = df_2["tempo"][index]
+                break
+        
+        
         fig = go.Figure()
         fig.add_trace(go.Scatter(
                     x=df_2["tempo"],
@@ -301,6 +319,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
                 )
             )
         fig.add_vline(x=linha_zero, line_dash="dash", line_color="red")
+        fig.add_vline(x=onset, line_dash="dash", line_color="blue")
         
         fig.update_layout(
             height=650,

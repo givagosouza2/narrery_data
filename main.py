@@ -274,38 +274,50 @@ if arquivo_1 is not None and arquivo_2 is not None:
     # ========================================================
 
     st.subheader("Sinais processados")
+    col1, col2 = st.columns(2)
+    with col1:
+        fig = go.Figure()
 
-    fig = go.Figure()
-
-    for eixo in eixos_arquivo_1:
-        fig.add_trace(
-            go.Scatter(
-                x=df_1["tempo"],
-                y=abs(df_1["Y"]),
-                mode="lines",
-                name=f"Arquivo 1 — {"Y"}"
+        for eixo in eixos_arquivo_1:
+            fig.add_trace(
+                go.Scatter(
+                    x=df_1["tempo"],
+                    y=abs(df_1["Y"]),
+                    mode="lines",
+                    name=f"Arquivo 1 — {"Y"}"
+                )
             )
+        fig.update_layout(
+            height=650,
+            xaxis_title="Tempo (s)",
+            yaxis_title="Aceleração processada",
+            legend_title="Sinais",
+            margin=dict(l=40, r=20, t=40, b=40)
         )
-
-    for eixo in eixos_arquivo_2:
-        fig.add_trace(
-            go.Scatter(
-                x=df_2["tempo"],
-                y=df_2["X"],
-                mode="lines",
-                name=f"Arquivo 2 — {"X"}"
+    
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        fig = go.Figure()
+        for eixo in eixos_arquivo_2:
+            fig.add_trace(
+                go.Scatter(
+                    x=df_2["tempo"],
+                    y=df_2["X"],
+                    mode="lines",
+                    name=f"Arquivo 2 — {"X"}"
+                )
             )
+
+        fig.update_layout(
+            height=650,
+            xaxis_title="Tempo (s)",
+            yaxis_title="Aceleração processada",
+            legend_title="Sinais",
+            margin=dict(l=40, r=20, t=40, b=40)
         )
-
-    fig.update_layout(
-        height=650,
-        xaxis_title="Tempo (s)",
-        yaxis_title="Aceleração processada",
-        legend_title="Sinais",
-        margin=dict(l=40, r=20, t=40, b=40)
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
+    
+        st.plotly_chart(fig, use_container_width=True)
 
 
     # ========================================================

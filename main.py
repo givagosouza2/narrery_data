@@ -306,7 +306,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
         trial = df_2["X"][p1:p2]
         for index, valor in enumerate(trial):
             if valor < baseline - 2*dp_baseline:
-                onset = df_2["tempo"][index]
+                onset = df_2["tempo"][p1+index]
                 break
 
         st.text(onset)

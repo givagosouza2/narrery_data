@@ -274,6 +274,13 @@ if arquivo_1 is not None and arquivo_2 is not None:
     # ========================================================
 
     st.subheader("Sinais processados")
+    linha_zero = st.number_input(
+    "Insira o valor do marcador temporal",
+    min_value=-100.0,
+    max_value=100.0,
+    value=0.0,
+    step=0.1
+    )
     col1, col2 = st.columns(2)
     with col1:
         fig = go.Figure()
@@ -285,6 +292,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
                     name=f"Arquivo 1 — {"Y"}"
                 )
             )
+        fig.add_vline(x=linha_zero, line_dash="dash", line_color="red")
         fig.update_layout(
             height=650,
             xaxis_title="Tempo (s)",
@@ -303,7 +311,8 @@ if arquivo_1 is not None and arquivo_2 is not None:
                     name=f"Arquivo 2 — {"X"}"
                 )
             )
-
+        fig.add_vline(x=linha_zero, line_dash="dash", line_color="red")
+        
         fig.update_layout(
             height=650,
             xaxis_title="Tempo (s)",

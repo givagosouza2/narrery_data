@@ -271,9 +271,9 @@ if arquivo_1 is not None and arquivo_2 is not None:
         fig.add_trace(
             go.Scatter(
                 x=df_1["tempo"],
-                y=df_1[eixo],
+                y=df_1["Y"],
                 mode="lines",
-                name=f"Arquivo 1 — {eixo}"
+                name=f"Arquivo 1 — {"Y"}"
             )
         )
 
@@ -281,9 +281,9 @@ if arquivo_1 is not None and arquivo_2 is not None:
         fig.add_trace(
             go.Scatter(
                 x=df_2["tempo"],
-                y=df_2[eixo],
+                y=df_2["X"],
                 mode="lines",
-                name=f"Arquivo 2 — {eixo}"
+                name=f"Arquivo 2 — {"X"}"
             )
         )
 

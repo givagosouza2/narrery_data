@@ -323,20 +323,6 @@ if arquivo_1 is not None and arquivo_2 is not None:
             break
     p1 = index-500
     p2 = index + 500
-    valeAPA = np.min(df_2["X"][p1:p2])
-    for index,valor in enumerate(df_2["X"]):
-        if valor == valeAPA:
-            valeTime = df_2["tempo"][index]
-            break
-    baseline = np.mean(df_2["X"][p1:p1+200])
-    dp_baseline = np.std(df_2["X"][p1:p1+200])
-    trial_data = df_2["X"][p1:p2]
-    trial_tempo = df_2["tempo"][p1:p2]
-    for index, valor in enumerate(trial_data):
-        if valor < baseline - 2*dp_baseline:
-            onset = df_2["tempo"][p1+index]
-            break
-
     
     with col1:
         fig = go.Figure()

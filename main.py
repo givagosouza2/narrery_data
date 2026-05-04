@@ -251,6 +251,67 @@ if arquivo_1 is not None and arquivo_2 is not None:
     # ========================================================
 
     st.subheader("Sinais processados")
+
+    triggerAnkle = st.number_input(
+    "Insira o valor do momento do trigger do tornozelo",
+    min_value=-100.0,
+    max_value=100.0,
+    value=0.0,
+    step=0.1
+    )
+    triggerLumbar = st.number_input(
+    "Insira o valor do momento do trigger da cintura",
+    min_value=-100.0,
+    max_value=100.0,
+    value=0.0,
+    step=0.1
+    )
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        fig = go.Figure()
+
+        fig.add_trace(go.Scatter(
+                    x=df_1["tempo"],
+                    y=(df_1["R"]),
+                    mode="lines",
+                    name=f"Arquivo 1 — {"Y"}"
+                )
+            )
+        fig.add_vline(x=triggerAnkle, line_dash="dash", line_color="red")
+        fig.update_layout(
+            height=650,
+            xaxis_title="Tempo (s)",
+            yaxis_title="Aceleração processada",
+            xaxis=dict(range=[linha_zero - 0.5, linha_zero+0.5]),
+            margin=dict(l=40, r=20, t=40, b=40)
+        )
+    
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+                    x=df_2["tempo"],
+                    y=df_2["X"],
+                    mode="lines",
+                    name=f"Arquivo 2 — {"X"}"
+                )
+            )
+        
+        fig.add_vline(x=triggerLumbar, line_dash="dash", line_color="red")
+        
+        
+        fig.update_layout(
+            height=650,
+            xaxis_title="Tempo (s)",
+            yaxis_title="Aceleração processada",
+            xaxis=dict(range=[linha_zero - 0.5, linha_zero+0.5]),
+            margin=dict(l=40, r=20, t=40, b=40)
+        )
+    
+        st.plotly_chart(fig, use_container_width=True)
+
     linha_zero = st.number_input(
     "Insira o valor do marcador temporal",
     min_value=-100.0,
@@ -259,35 +320,40 @@ if arquivo_1 is not None and arquivo_2 is not None:
     step=0.1
     )
 
-    peakAnkle = st.number_input(
-    "Insira o valor do momento do trigger do tornozelo",
-    min_value=-100.0,
-    max_value=100.0,
-    value=0.0,
-    step=0.1
-    )
-    peakLumbar = st.number_input(
-    "Insira o valor do momento do trigger da cintura",
-    min_value=-100.0,
-    max_value=100.0,
-    value=0.0,
-    step=0.1
-    )
     for index,valor in enumerate(df_1["Y"]):
-        if valor == peakAnkle:
+        if valor == triggerAnkle:
             df_1["tempo"] = df_1["tempo"] - df_1["tempo"][index] 
             break
     for index,valor in enumerate(df_2["X"]):
-        if valor == peakLumbar:
+        if valor == triggerLumbar:
             df_2["tempo"] = df_2["tempo"] - df_2["tempo"][index] 
             break
-    col1, col2 = st.columns(2)
+            
+    for index,valor in enumerate(df_2["tempo"]):
+        if valor == linha_zero:
+            break
+    p1 = index-500
+    p2 = index + 500
+    valeAPA = np.min(df_2["X"][p1:p2])
+    for index,valor in enumerate(df_2["X"]):
+        if valor == valeAPA:
+            valeTime = df_2["tempo"][index]
+            break
+    baseline = np.mean(df_2["X"][p1:p1+200])
+    dp_baseline = np.std(df_2["X"][p1:p1+200])
+    trial_data = df_2["X"][p1:p2]
+    trial_tempo = df_2["tempo"][p1:p2]
+    for index, valor in enumerate(trial_data):
+        if valor < baseline - 2*dp_baseline:
+            onset = df_2["tempo"][p1+index]
+            break
+
+    st.text(onset)
     with col1:
         fig = go.Figure()
-
         fig.add_trace(go.Scatter(
                     x=df_1["tempo"],
-                    y=abs(df_1["R"]),
+                    y=(df_1["R"]),
                     mode="lines",
                     name=f"Arquivo 1 — {"Y"}"
                 )
@@ -302,30 +368,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
         )
     
         st.plotly_chart(fig, use_container_width=True)
-    
     with col2:
-        for index,valor in enumerate(df_2["tempo"]):
-            if valor == linha_zero:
-                break
-        p1 = index-500
-        p2 = index + 500
-        valeAPA = np.min(df_2["X"][p1:p2])
-        for index,valor in enumerate(df_2["X"]):
-            if valor == valeAPA:
-                valeTime = df_2["tempo"][index]
-                break
-        baseline = np.mean(df_2["X"][p1:p1+200])
-        dp_baseline = np.std(df_2["X"][p1:p1+200])
-        trial_data = df_2["X"][p1:p2]
-        trial_tempo = df_2["tempo"][p1:p2]
-        for index, valor in enumerate(trial_data):
-            if valor < baseline - 2*dp_baseline:
-                onset = df_2["tempo"][p1+index]
-                break
-
-        st.text(onset)
-        
-        
         fig = go.Figure()
         fig.add_trace(go.Scatter(
                     x=df_2["tempo"],
@@ -334,9 +377,9 @@ if arquivo_1 is not None and arquivo_2 is not None:
                     name=f"Arquivo 2 — {"X"}"
                 )
             )
-        fig.add_vline(x=valeTime, line_dash="dash", line_color="green")
-        fig.add_vline(x=linha_zero, line_dash="dash", line_color="red")
-        fig.add_vline(x=onset, line_dash="dash", line_color="blue")
+        
+        fig.add_vline(x=triggerLumbar, line_dash="dash", line_color="red")
+        
         
         fig.update_layout(
             height=650,
@@ -347,7 +390,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
         )
     
         st.plotly_chart(fig, use_container_width=True)
-
+    
     fig = go.Figure()
     fig.add_trace(go.Scatter(
                     x=trial_tempo,

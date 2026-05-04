@@ -105,7 +105,7 @@ def detectar_saida_baseline(
     df_proc,
     eixo,
     duracao_baseline_s=0.2,
-    n_dp=2.0,
+    n_dp=5.0,
     procurar_apos_baseline=True,
     persistencia_amostras=1
 ):

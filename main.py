@@ -278,9 +278,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
     with col1:
         fig = go.Figure()
 
-        for eixo in eixos_arquivo_1:
-            fig.add_trace(
-                go.Scatter(
+        fig.add_trace(go.Scatter(
                     x=df_1["tempo"],
                     y=abs(df_1["R"]),
                     mode="lines",
@@ -291,7 +289,6 @@ if arquivo_1 is not None and arquivo_2 is not None:
             height=650,
             xaxis_title="Tempo (s)",
             yaxis_title="Aceleração processada",
-            legend_title="Sinais",
             margin=dict(l=40, r=20, t=40, b=40)
         )
     
@@ -299,9 +296,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
     
     with col2:
         fig = go.Figure()
-        for eixo in eixos_arquivo_2:
-            fig.add_trace(
-                go.Scatter(
+        fig.add_trace(go.Scatter(
                     x=df_2["tempo"],
                     y=df_2["X"],
                     mode="lines",
@@ -313,7 +308,6 @@ if arquivo_1 is not None and arquivo_2 is not None:
             height=650,
             xaxis_title="Tempo (s)",
             yaxis_title="Aceleração processada",
-            legend_title="Sinais",
             margin=dict(l=40, r=20, t=40, b=40)
         )
     

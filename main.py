@@ -1,187 +1,256 @@
 import io
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 from scipy.signal import detrend, butter, filtfilt
 
+st.set_page_config(page_title="Sincronização de sinais IMU", layout="wide")
 
-st.set_page_config(page_title="Análise de acelerometria", layout="wide")
+st.title("Sincronização de sinais: tornozelo e coluna/cintura")
+st.markdown(
+    """
+Este app importa dois arquivos de aceleração, aplica **detrend**, filtro passa-baixa de **10 Hz** 
+e sincroniza as séries temporais usando:
 
-st.title("Análise de dois sensores: detrend + filtro passa-baixa")
-st.write(
-    "Abra dois arquivos TXT/CSV, aplique detrend, filtro passa-baixa de 10 Hz "
-    "e escolha quais eixos deseja plotar para cada sensor."
+- **Tornozelo:** pico máximo do eixo **Y**
+- **Coluna/Cintura:** pico máximo do eixo **X**
+
+Após a sincronização, esses dois eventos passam a ser o **tempo zero** de cada registro.
+"""
 )
 
 
 def read_sensor_file(uploaded_file):
-    """Lê arquivos separados por ;, vírgula, tab ou espaço."""
+    """Read semicolon/comma/space separated TXT/CSV with time, X, Y, Z columns."""
     if uploaded_file is None:
         return None
 
-    raw = uploaded_file.getvalue().decode("utf-8", errors="ignore")
-    df = pd.read_csv(io.StringIO(raw), sep=r"[;,	 ]+", engine="python")
+    raw = uploaded_file.read()
+    uploaded_file.seek(0)
 
-    # Normaliza nomes de colunas
-    df.columns = [str(c).strip() for c in df.columns]
+    # Try common separators. The uploaded examples use semicolon.
+    text = raw.decode("utf-8", errors="ignore")
+    try:
+        df = pd.read_csv(io.StringIO(text), sep=r"[;,	]+", engine="python")
+    except Exception:
+        df = pd.read_csv(io.StringIO(text), sep=r"\s+", engine="python")
 
-    # Mantém apenas colunas numéricas
-    for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-    df = df.dropna(how="all")
+    # If parsing failed into one column, try whitespace.
+    if df.shape[1] < 4:
+        df = pd.read_csv(io.StringIO(text), sep=r"\s+", engine="python")
 
     if df.shape[1] < 4:
-        raise ValueError("O arquivo precisa ter pelo menos 4 colunas: tempo, Acc X, Acc Y e Acc Z.")
+        raise ValueError("O arquivo precisa ter pelo menos 4 colunas: tempo, accX, accY e accZ.")
 
     df = df.iloc[:, :4].copy()
-    df.columns = ["tempo_original", "acc_x", "acc_y", "acc_z"]
+    df.columns = ["tempo_original", "X_original", "Y_original", "Z_original"]
 
-    # Tempo: se estiver em ms, converte para segundos.
-    t = df["tempo_original"].to_numpy(dtype=float)
-    dt_median = np.nanmedian(np.diff(t))
-    if dt_median > 1:  # típico: 10 ms
-        df["tempo_s"] = df["tempo_original"] / 1000.0
-    else:
-        df["tempo_s"] = df["tempo_original"]
+    for col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df = df.dropna().reset_index(drop=True)
 
     return df
 
 
 def estimate_fs(time_s):
-    diffs = np.diff(time_s)
-    diffs = diffs[np.isfinite(diffs) & (diffs > 0)]
-    if len(diffs) == 0:
+    dt = np.diff(time_s)
+    dt = dt[np.isfinite(dt) & (dt > 0)]
+    if len(dt) == 0:
         return 100.0
-    return 1.0 / np.median(diffs)
+    return 1.0 / np.median(dt)
 
 
-def preprocess(df, cutoff_hz=10.0, order=2, apply_abs=False):
-    out = df.copy()
-    fs = estimate_fs(out["tempo_s"].to_numpy(dtype=float))
+def lowpass_filter(y, fs, cutoff=10.0, order=2):
     nyq = fs / 2.0
+    if cutoff >= nyq:
+        cutoff = 0.45 * fs
+    wn = cutoff / nyq
+    b, a = butter(order, wn, btype="low")
+    return filtfilt(b, a, y)
 
-    if cutoff_hz >= nyq:
-        raise ValueError(
-            f"A frequência de corte ({cutoff_hz} Hz) precisa ser menor que Nyquist ({nyq:.2f} Hz)."
+
+def preprocess(df, cutoff=10.0, order=2, time_unit="ms"):
+    out = df.copy()
+
+    if time_unit == "ms":
+        out["tempo_s"] = out["tempo_original"] / 1000.0
+    else:
+        out["tempo_s"] = out["tempo_original"]
+
+    fs = estimate_fs(out["tempo_s"].to_numpy())
+
+    for axis in ["X", "Y", "Z"]:
+        raw = out[f"{axis}_original"].to_numpy(dtype=float)
+        det = detrend(raw, type="linear")
+        filt = lowpass_filter(det, fs=fs, cutoff=cutoff, order=order)
+        out[f"{axis}_detrend"] = det
+        out[f"{axis}_filtrado"] = filt
+
+    out["R_filtrado"] = np.sqrt(
+        out["X_filtrado"] ** 2 + out["Y_filtrado"] ** 2 + out["Z_filtrado"] ** 2
+    )
+    out.attrs["fs"] = fs
+    return out
+
+
+def sync_by_peak(df, axis_col):
+    """Return dataframe with synchronized time based on max amplitude of selected filtered axis."""
+    out = df.copy()
+    idx_peak = int(np.nanargmax(out[axis_col].to_numpy()))
+    t0 = float(out.loc[idx_peak, "tempo_s"])
+    amp0 = float(out.loc[idx_peak, axis_col])
+    out["tempo_sinc"] = out["tempo_s"] - t0
+    return out, idx_peak, t0, amp0
+
+
+def plot_signals(df, selected_axes, title, time_col="tempo_sinc", peak_info=None):
+    fig = go.Figure()
+    for axis in selected_axes:
+        ycol = f"{axis}_filtrado" if axis != "R" else "R_filtrado"
+        fig.add_trace(
+            go.Scatter(
+                x=df[time_col],
+                y=df[ycol],
+                mode="lines",
+                name=axis,
+            )
         )
 
-    b, a = butter(order, cutoff_hz / nyq, btype="low")
+    fig.add_vline(x=0, line_dash="dash", annotation_text="t = 0")
 
-    for axis in ["acc_x", "acc_y", "acc_z"]:
-        y = out[axis].to_numpy(dtype=float)
-        y = pd.Series(y).interpolate(limit_direction="both").to_numpy()
-        y_det = detrend(y, type="linear")
-        y_filt = filtfilt(b, a, y_det)
-        if apply_abs:
-            y_filt = np.abs(y_filt)
-        out[f"{axis}_detrend"] = y_det
-        out[f"{axis}_filt"] = y_filt
+    if peak_info is not None:
+        idx_peak, axis_col = peak_info
+        fig.add_trace(
+            go.Scatter(
+                x=[df.loc[idx_peak, time_col]],
+                y=[df.loc[idx_peak, axis_col]],
+                mode="markers",
+                marker=dict(size=10),
+                name="Pico de sincronização",
+            )
+        )
 
-    out["acc_r_filt"] = np.sqrt(
-        out["acc_x_filt"] ** 2 + out["acc_y_filt"] ** 2 + out["acc_z_filt"] ** 2
+    fig.update_layout(
+        title=title,
+        xaxis_title="Tempo sincronizado (s)",
+        yaxis_title="Aceleração filtrada",
+        height=430,
+        legend_title="Eixos",
     )
-    return out, fs
-
-
-def plot_sensor(df, selected_axes, title, y_source):
-    fig, ax = plt.subplots(figsize=(12, 4))
-    map_cols = {
-        "X": f"acc_x_{y_source}",
-        "Y": f"acc_y_{y_source}",
-        "Z": f"acc_z_{y_source}",
-        "R = sqrt(X²+Y²+Z²)": "acc_r_filt" if y_source == "filt" else None,
-    }
-
-    for axis in selected_axes:
-        col = map_cols.get(axis)
-        if col is not None and col in df.columns:
-            ax.plot(df["tempo_s"], df[col], label=axis)
-
-    ax.set_title(title)
-    ax.set_xlabel("Tempo (s)")
-    ax.set_ylabel("Aceleração")
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc="best")
-    st.pyplot(fig)
+    return fig
 
 
 with st.sidebar:
     st.header("Arquivos")
-    file1 = st.file_uploader("Arquivo 1", type=["txt", "csv"], key="file1")
-    nome1 = st.text_input("Nome do arquivo 1", value="Cintura")
-
-    file2 = st.file_uploader("Arquivo 2", type=["txt", "csv"], key="file2")
-    nome2 = st.text_input("Nome do arquivo 2", value="Tornozelo")
+    tornozelo_file = st.file_uploader("Arquivo do tornozelo", type=["txt", "csv"], key="tornozelo")
+    coluna_file = st.file_uploader("Arquivo da coluna/cintura", type=["txt", "csv"], key="coluna")
 
     st.header("Pré-processamento")
-    cutoff = st.number_input("Filtro passa-baixa (Hz)", min_value=0.1, max_value=49.0, value=10.0, step=0.5)
-    order = st.selectbox("Ordem do filtro Butterworth", [2, 4, 6], index=0)
-    apply_abs = st.checkbox("Plotar valores absolutos após filtro", value=False)
-    y_source_label = st.radio("Sinal para plotagem", ["Filtrado", "Apenas detrend"], index=0)
-    y_source = "filt" if y_source_label == "Filtrado" else "detrend"
+    time_unit = st.radio("Unidade da coluna de tempo", ["ms", "s"], index=0, horizontal=True)
+    cutoff = st.number_input("Filtro passa-baixa (Hz)", min_value=0.1, max_value=50.0, value=10.0, step=0.5)
+    order = st.number_input("Ordem do Butterworth", min_value=1, max_value=8, value=2, step=1)
 
-    st.header("Eixos")
-    axes1 = st.multiselect(f"Eixos para {nome1}", ["X", "Y", "Z", "R = sqrt(X²+Y²+Z²)"], default=["X"])
-    axes2 = st.multiselect(f"Eixos para {nome2}", ["X", "Y", "Z", "R = sqrt(X²+Y²+Z²)"], default=["Y"])
+    st.header("Eixos para plotar")
+    axes_options = ["X", "Y", "Z", "R"]
+    eixos_tornozelo = st.multiselect("Tornozelo", axes_options, default=["Y"])
+    eixos_coluna = st.multiselect("Coluna/Cintura", axes_options, default=["X"])
 
-if file1 is None or file2 is None:
-    st.info("Envie os dois arquivos para iniciar a análise.")
+if tornozelo_file is None or coluna_file is None:
+    st.info("Importe os dois arquivos para iniciar a análise.")
     st.stop()
 
 try:
-    df1 = read_sensor_file(file1)
-    df2 = read_sensor_file(file2)
+    tornozelo_raw = read_sensor_file(tornozelo_file)
+    coluna_raw = read_sensor_file(coluna_file)
 
-    proc1, fs1 = preprocess(df1, cutoff_hz=cutoff, order=order, apply_abs=apply_abs)
-    proc2, fs2 = preprocess(df2, cutoff_hz=cutoff, order=order, apply_abs=apply_abs)
+    tornozelo = preprocess(tornozelo_raw, cutoff=cutoff, order=int(order), time_unit=time_unit)
+    coluna = preprocess(coluna_raw, cutoff=cutoff, order=int(order), time_unit=time_unit)
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric(f"{nome1}: amostras", len(proc1))
-    c2.metric(f"{nome1}: Fs estimada", f"{fs1:.1f} Hz")
-    c3.metric(f"{nome2}: amostras", len(proc2))
-    c4.metric(f"{nome2}: Fs estimada", f"{fs2:.1f} Hz")
-
-    tab1, tab2, tab3 = st.tabs(["Gráficos", "Dados processados", "Exportar"])
-
-    with tab1:
-        col1, col2 = st.columns(2)
-        with col1:
-            plot_sensor(proc1, axes1, nome1, y_source)
-        with col2:
-            plot_sensor(proc2, axes2, nome2, y_source)
-
-        st.subheader("Sobreposição opcional")
-        overlay = st.checkbox("Mostrar os dois sensores no mesmo gráfico")
-        if overlay:
-            fig, ax = plt.subplots(figsize=(14, 5))
-            for axis in axes1:
-                col = {"X": f"acc_x_{y_source}", "Y": f"acc_y_{y_source}", "Z": f"acc_z_{y_source}", "R = sqrt(X²+Y²+Z²)": "acc_r_filt"}.get(axis)
-                if col and col in proc1.columns:
-                    ax.plot(proc1["tempo_s"], proc1[col], label=f"{nome1} {axis}")
-            for axis in axes2:
-                col = {"X": f"acc_x_{y_source}", "Y": f"acc_y_{y_source}", "Z": f"acc_z_{y_source}", "R = sqrt(X²+Y²+Z²)": "acc_r_filt"}.get(axis)
-                if col and col in proc2.columns:
-                    ax.plot(proc2["tempo_s"], proc2[col], label=f"{nome2} {axis}")
-            ax.set_xlabel("Tempo (s)")
-            ax.set_ylabel("Aceleração")
-            ax.grid(True, alpha=0.3)
-            ax.legend(loc="best")
-            st.pyplot(fig)
-
-    with tab2:
-        st.write(f"### {nome1}")
-        st.dataframe(proc1.head(1000), use_container_width=True)
-        st.write(f"### {nome2}")
-        st.dataframe(proc2.head(1000), use_container_width=True)
-
-    with tab3:
-        csv1 = proc1.to_csv(index=False).encode("utf-8")
-        csv2 = proc2.to_csv(index=False).encode("utf-8")
-        st.download_button(f"Baixar {nome1} processado CSV", data=csv1, file_name=f"{nome1}_processado.csv", mime="text/csv")
-        st.download_button(f"Baixar {nome2} processado CSV", data=csv2, file_name=f"{nome2}_processado.csv", mime="text/csv")
+    # Synchronization rule requested by the user.
+    tornozelo, idx_tornozelo, t0_tornozelo, amp_tornozelo = sync_by_peak(tornozelo, "Y_filtrado")
+    coluna, idx_coluna, t0_coluna, amp_coluna = sync_by_peak(coluna, "X_filtrado")
 
 except Exception as e:
-    st.error(f"Erro na análise: {e}")
+    st.error(f"Erro ao processar os arquivos: {e}")
+    st.stop()
+
+st.subheader("Resumo da sincronização")
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Fs tornozelo", f"{tornozelo.attrs['fs']:.2f} Hz")
+col2.metric("Pico tornozelo Y", f"{amp_tornozelo:.4f}", f"t0 = {t0_tornozelo:.3f} s")
+col3.metric("Fs coluna/cintura", f"{coluna.attrs['fs']:.2f} Hz")
+col4.metric("Pico coluna X", f"{amp_coluna:.4f}", f"t0 = {t0_coluna:.3f} s")
+
+st.markdown(
+    f"""
+**Critério aplicado:**  
+- Tornozelo: `tempo_sinc = tempo_s - {t0_tornozelo:.6f}`  
+- Coluna/Cintura: `tempo_sinc = tempo_s - {t0_coluna:.6f}`
+"""
+)
+
+left, right = st.columns(2)
+with left:
+    st.plotly_chart(
+        plot_signals(
+            tornozelo,
+            eixos_tornozelo,
+            "Tornozelo sincronizado pelo pico máximo do eixo Y",
+            peak_info=(idx_tornozelo, "Y_filtrado"),
+        ),
+        use_container_width=True,
+    )
+with right:
+    st.plotly_chart(
+        plot_signals(
+            coluna,
+            eixos_coluna,
+            "Coluna/Cintura sincronizada pelo pico máximo do eixo X",
+            peak_info=(idx_coluna, "X_filtrado"),
+        ),
+        use_container_width=True,
+    )
+
+st.subheader("Sobreposição dos sinais selecionados")
+fig_overlay = go.Figure()
+for axis in eixos_tornozelo:
+    ycol = f"{axis}_filtrado" if axis != "R" else "R_filtrado"
+    fig_overlay.add_trace(go.Scatter(x=tornozelo["tempo_sinc"], y=tornozelo[ycol], mode="lines", name=f"Tornozelo {axis}"))
+for axis in eixos_coluna:
+    ycol = f"{axis}_filtrado" if axis != "R" else "R_filtrado"
+    fig_overlay.add_trace(go.Scatter(x=coluna["tempo_sinc"], y=coluna[ycol], mode="lines", name=f"Coluna/Cintura {axis}"))
+fig_overlay.add_vline(x=0, line_dash="dash", annotation_text="tempo zero")
+fig_overlay.update_layout(
+    xaxis_title="Tempo sincronizado (s)",
+    yaxis_title="Aceleração filtrada",
+    height=520,
+    legend_title="Sinais",
+)
+st.plotly_chart(fig_overlay, use_container_width=True)
+
+st.subheader("Exportar dados sincronizados")
+export_tornozelo = tornozelo[["tempo_original", "tempo_s", "tempo_sinc", "X_filtrado", "Y_filtrado", "Z_filtrado", "R_filtrado"]].copy()
+export_coluna = coluna[["tempo_original", "tempo_s", "tempo_sinc", "X_filtrado", "Y_filtrado", "Z_filtrado", "R_filtrado"]].copy()
+
+c1, c2 = st.columns(2)
+with c1:
+    st.download_button(
+        "Baixar tornozelo sincronizado CSV",
+        data=export_tornozelo.to_csv(index=False).encode("utf-8"),
+        file_name="tornozelo_sincronizado.csv",
+        mime="text/csv",
+    )
+with c2:
+    st.download_button(
+        "Baixar coluna_cintura sincronizada CSV",
+        data=export_coluna.to_csv(index=False).encode("utf-8"),
+        file_name="coluna_cintura_sincronizada.csv",
+        mime="text/csv",
+    )
+
+with st.expander("Ver primeiras linhas dos dados sincronizados"):
+    st.write("Tornozelo")
+    st.dataframe(export_tornozelo.head(20), use_container_width=True)
+    st.write("Coluna/Cintura")
+    st.dataframe(export_coluna.head(20), use_container_width=True)

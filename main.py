@@ -335,7 +335,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
             mime="text/csv"
         )
     with aba2:
-        df_2_visivel = df_1[
+        df_2_visivel = df_2[
         (df_2["tempo"] >= linha_zero - 0.5) &
         (df_2["tempo"] <= linha_zero - 0.5)
         ]

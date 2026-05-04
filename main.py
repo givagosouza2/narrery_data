@@ -299,7 +299,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
         p2 = index + 500
         valeAPA = np.min(df_2["X"][p1:p2])
         for index,valor in enumerate(df_2["X"]):
-            if valor == valeAP:
+            if valor == valeAPA:
                 break
         baseline = np.mean(df_2["X"][p1:p1+200])
         dp_baseline = np.std(df_2["X"][p1:p1+200])

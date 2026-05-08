@@ -402,7 +402,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
     with aba2:
         df_2["tempo_relativo"] = df_2["tempo"] - linha_zero
         df_2_visivel = df_2[
-        (df_2["tempo realitivo"] >= linha_zero - 0.5) &
+        (df_2["tempo relativo"] >= linha_zero - 0.5) &
         (df_2["tempo realitivo"] <= linha_zero + 0.5)
         ]
         st.dataframe(df_2_visivel, use_container_width=True)

@@ -386,7 +386,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
     with aba1:
         TEMPO_REL = df_1["tempo"] - linha_zero
         
-        df_1_visivel = df_1[
+        df_1_visivel = TEMPO_REL[
         (TEMPO_REL >= -0.5) &
         (TEMPO_REL <= 0.5)
         ]
@@ -401,7 +401,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
         )
     with aba2:
         TEMPO_REL = df_2["tempo"] - linha_zero
-        df_2_visivel = df_2[
+        df_2_visivel = TEMPO_REL[
         (TEMPO_REL >=  -0.5) &
         (TEMPO_REL <= 0.5)
         ]

@@ -386,11 +386,11 @@ if arquivo_1 is not None and arquivo_2 is not None:
     with aba1:
         tempo_visivel = df_1["tempo"] - linha_zero
         for index, valor in enumerate(tempo_visivel):
-            if valor = -0.5:
+            if valor == -0.5:
                 lim1 = index
                 break
         for index, valor in enumerate(tempo_visivel):
-            if valor = 0.5:
+            if valor == 0.5:
                 lim2 = index
                 break
         
@@ -408,11 +408,11 @@ if arquivo_1 is not None and arquivo_2 is not None:
     with aba2:
         tempo_visivel = df_2["tempo"] - linha_zero
         for index, valor in enumerate(tempo_visivel):
-            if valor = -0.5:
+            if valor == -0.5:
                 lim1 = index
                 break
         for index, valor in enumerate(tempo_visivel):
-            if valor = 0.5:
+            if valor == 0.5:
                 lim2 = index
                 break
         

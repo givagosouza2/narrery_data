@@ -391,7 +391,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
         
         df_1_visivel = pd.DataFrame()
         
-        df_1_visivel["tempo"] = df_1["tempo"].iloc[lim1:lim2].values
+        df_1_visivel["tempo"] = visivel.iloc[lim1:lim2].values
         df_1_visivel["APA"] = df_1["R"].iloc[lim1:lim2].values
         st.dataframe(df_1_visivel, use_container_width=True)
 
@@ -409,7 +409,7 @@ if arquivo_1 is not None and arquivo_2 is not None:
         
         df_2_visivel = pd.DataFrame()
         
-        df_2_visivel["tempo"] = df_2["tempo"].iloc[lim1:lim2].values
+        df_2_visivel["tempo"] = tempo_visivel.iloc[lim1:lim2].values
         df_2_visivel["APA"] = df_2["X"].iloc[lim1:lim2].values
         
         st.dataframe(df_2_visivel, use_container_width=True)

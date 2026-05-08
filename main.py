@@ -385,14 +385,8 @@ if arquivo_1 is not None and arquivo_2 is not None:
 
     with aba1:
         tempo_visivel = df_1["tempo"] - linha_zero
-        for index, valor in enumerate(tempo_visivel):
-            if valor > -0.5:
-                lim1 = index
-                break
-        for index, valor in enumerate(tempo_visivel):
-            if valor > 0.5:
-                lim2 = index
-                break
+        lim1 = np.where(tempo_visivel >= -0.5)[0][0]
+        lim2 = np.where(tempo_visivel >= 0.5)[0][0]
         
         df_1_visivel["tempo"] = df_1["tempo"][lim1:lim2]
         df_1_visivel["APA"] = df_1["R"][lim1:lim2]
@@ -407,14 +401,8 @@ if arquivo_1 is not None and arquivo_2 is not None:
         )
     with aba2:
         tempo_visivel = df_2["tempo"] - linha_zero
-        for index, valor in enumerate(tempo_visivel):
-            if valor > -0.5:
-                lim1 = index
-                break
-        for index, valor in enumerate(tempo_visivel):
-            if valor > 0.5:
-                lim2 = index
-                break
+        lim1 = np.where(tempo_visivel >= -0.5)[0][0]
+        lim2 = np.where(tempo_visivel >= 0.5)[0][0]
         
         df_2_visivel["tempo"] = df_2["tempo"][lim1:lim2]
         df_2_visivel["APA"] = df_2["X"][lim1:lim2]

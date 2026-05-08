@@ -384,11 +384,11 @@ if arquivo_1 is not None and arquivo_2 is not None:
     aba1, aba2 = st.tabs(["Arquivo 1", "Arquivo 2"])
 
     with aba1:
-        df_1["tempo_relativo"] = df_1["tempo"] - linha_zero
+        TEMPO_REL = df_1["tempo"] - linha_zero
         
         df_1_visivel = df_1[
-        (df_1["tempo relativo"] >= -0.5) &
-        (df_1["tempo relativo"] <= 0.5)
+        (TEMPO_REL >= -0.5) &
+        (TEMPO_REL <= 0.5)
         ]
         st.dataframe(df_1_visivel, use_container_width=True)
 
@@ -400,10 +400,10 @@ if arquivo_1 is not None and arquivo_2 is not None:
             mime="text/csv"
         )
     with aba2:
-        df_2["tempo_relativo"] = df_2["tempo"] - linha_zero
+        TEMPO_REL = df_2["tempo"] - linha_zero
         df_2_visivel = df_2[
-        (df_2["tempo relativo"] >=  -0.5) &
-        (df_2["tempo relativo"] <= 0.5)
+        (TEMPO_REL >=  -0.5) &
+        (TEMPO_REL <= 0.5)
         ]
         st.dataframe(df_2_visivel, use_container_width=True)
 

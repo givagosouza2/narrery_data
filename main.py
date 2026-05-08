@@ -310,6 +310,17 @@ if arquivo_1 is not None and arquivo_2 is not None:
     
         st.plotly_chart(fig, use_container_width=True)
 
+    for index,valor in enumerate(df_1["tempo"]):
+        if valor == triggerAnkle:
+            df_1["tempo"] = df_1["tempo"] - df_1["tempo"][index]
+            break
+    for index,valor in enumerate(df_2["tempo"]):
+        if valor == triggerLumbar:
+            df_2["tempo"] = df_2["tempo"] - df_2["tempo"][index]
+            break
+    
+    trial_tempo = df_2["tempo"][p1:p2]
+    trial_data = df_2["X"][p1:p2]
     linha_zero = st.number_input(
     "Insira o valor do marcador temporal",
     min_value=-100.0,

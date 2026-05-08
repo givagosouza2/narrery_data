@@ -384,12 +384,18 @@ if arquivo_1 is not None and arquivo_2 is not None:
     aba1, aba2 = st.tabs(["Arquivo 1", "Arquivo 2"])
 
     with aba1:
-        TEMPO_REL = df_1["tempo"] - linha_zero
+        tempo_visivel = df_1["tempo"] - linha_zero
+        for index, valor in enumerate(tempo_visivel):
+            if valor = -0.5:
+                lim1 = index
+                break
+        for index, valor in enumerate(tempo_visivel):
+            if valor = 0.5:
+                lim2 = index
+                break
         
-        df_1_visivel = TEMPO_REL[
-        (TEMPO_REL >= -0.5) &
-        (TEMPO_REL <= 0.5)
-        ]
+        df_1_visivel["tempo"] = df_1["tempo"][lim1,lim2]
+        df_1_visivel["APA"] = df_1["R"][lim1,lim2]
         st.dataframe(df_1_visivel, use_container_width=True)
 
         csv_1 = df_1_visivel.to_csv(index=False).encode("utf-8")
@@ -400,11 +406,18 @@ if arquivo_1 is not None and arquivo_2 is not None:
             mime="text/csv"
         )
     with aba2:
-        TEMPO_REL = df_2["tempo"] - linha_zero
-        df_2_visivel = TEMPO_REL[
-        (TEMPO_REL >=  -0.5) &
-        (TEMPO_REL <= 0.5)
-        ]
+        tempo_visivel = df_2["tempo"] - linha_zero
+        for index, valor in enumerate(tempo_visivel):
+            if valor = -0.5:
+                lim1 = index
+                break
+        for index, valor in enumerate(tempo_visivel):
+            if valor = 0.5:
+                lim2 = index
+                break
+        
+        df_2_visivel["tempo"] = df_2["tempo"][lim1,lim2]
+        df_2_visivel["APA"] = df_2["X"][lim1,lim2]
         st.dataframe(df_2_visivel, use_container_width=True)
 
         csv_2 = df_2_visivel.to_csv(index=False).encode("utf-8")

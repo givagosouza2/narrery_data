@@ -385,11 +385,14 @@ if arquivo_1 is not None and arquivo_2 is not None:
 
     with aba1:
         tempo_visivel = df_1["tempo"] - linha_zero
+
         lim1 = np.where(tempo_visivel >= -0.5)[0][0]
         lim2 = np.where(tempo_visivel >= 0.5)[0][0]
         
-        df_1_visivel["tempo"] = df_1["tempo"][lim1:lim2]
-        df_1_visivel["APA"] = df_1["R"][lim1:lim2]
+        df_1_visivel = pd.DataFrame()
+        
+        df_1_visivel["tempo"] = df_1["tempo"].iloc[lim1:lim2].values
+        df_1_visivel["APA"] = df_1["R"].iloc[lim1:lim2].values
         st.dataframe(df_1_visivel, use_container_width=True)
 
         csv_1 = df_1_visivel.to_csv(index=False).encode("utf-8")
@@ -404,8 +407,11 @@ if arquivo_1 is not None and arquivo_2 is not None:
         lim1 = np.where(tempo_visivel >= -0.5)[0][0]
         lim2 = np.where(tempo_visivel >= 0.5)[0][0]
         
-        df_2_visivel["tempo"] = df_2["tempo"][lim1:lim2]
-        df_2_visivel["APA"] = df_2["X"][lim1:lim2]
+        df_2_visivel = pd.DataFrame()
+        
+        df_2_visivel["tempo"] = df_2["tempo"].iloc[lim1:lim2].values
+        df_2_visivel["APA"] = df_2["X"].iloc[lim1:lim2].values
+        
         st.dataframe(df_2_visivel, use_container_width=True)
 
         csv_2 = df_2_visivel.to_csv(index=False).encode("utf-8")

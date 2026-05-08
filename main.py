@@ -394,8 +394,8 @@ if arquivo_1 is not None and arquivo_2 is not None:
                 lim2 = index
                 break
         
-        df_1_visivel["tempo"] = df_1["tempo"][lim1,lim2]
-        df_1_visivel["APA"] = df_1["R"][lim1,lim2]
+        df_1_visivel["tempo"] = df_1["tempo"][lim1:lim2]
+        df_1_visivel["APA"] = df_1["R"][lim1:lim2]
         st.dataframe(df_1_visivel, use_container_width=True)
 
         csv_1 = df_1_visivel.to_csv(index=False).encode("utf-8")
@@ -416,8 +416,8 @@ if arquivo_1 is not None and arquivo_2 is not None:
                 lim2 = index
                 break
         
-        df_2_visivel["tempo"] = df_2["tempo"][lim1,lim2]
-        df_2_visivel["APA"] = df_2["X"][lim1,lim2]
+        df_2_visivel["tempo"] = df_2["tempo"][lim1:lim2]
+        df_2_visivel["APA"] = df_2["X"][lim1:lim2]
         st.dataframe(df_2_visivel, use_container_width=True)
 
         csv_2 = df_2_visivel.to_csv(index=False).encode("utf-8")

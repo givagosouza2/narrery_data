@@ -385,8 +385,8 @@ if arquivo_1 is not None and arquivo_2 is not None:
 
     with aba1:
         df_1_visivel = df_1[
-        (df_1["tempo"] >= linha_zero - 0.5) &
-        (df_1["tempo"] <= linha_zero + 0.5)
+        (df_1["tempo"] >= linha_zero - 0.5) - linha_zero &
+        (df_1["tempo"] <= linha_zero + 0.5) - linha_zero
         ]
         st.dataframe(df_1_visivel, use_container_width=True)
 
@@ -399,8 +399,8 @@ if arquivo_1 is not None and arquivo_2 is not None:
         )
     with aba2:
         df_2_visivel = df_2[
-        (df_2["tempo"] >= linha_zero - 0.5) &
-        (df_2["tempo"] <= linha_zero + 0.5)
+        (df_2["tempo"] >= linha_zero - 0.5) - linha_zero &
+        (df_2["tempo"] <= linha_zero + 0.5) - linha_zero
         ]
         st.dataframe(df_2_visivel, use_container_width=True)
 
